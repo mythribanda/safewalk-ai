@@ -40,7 +40,8 @@
   --color-neon-amber: var(--neon-amber);
 
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Poppins", "Inter", sans-serif;
+  --font-display: "Space Grotesk", "Poppins", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 :root {
