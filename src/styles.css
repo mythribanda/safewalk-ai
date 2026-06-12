@@ -40,7 +40,8 @@
   --color-neon-amber: var(--neon-amber);
 
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Poppins", "Inter", sans-serif;
+  --font-display: "Space Grotesk", "Poppins", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 :root {
@@ -172,3 +173,15 @@
 .animate-pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
 .animate-float-slow { animation: float-slow 4s ease-in-out infinite; }
 .animate-dash { stroke-dasharray: 8 6; animation: dash 1.5s linear infinite; }
+.font-display { font-family: var(--font-display); }
+.font-mono { font-family: var(--font-mono); }
+
+/* Leaflet dark theme overrides */
+.leaflet-container { background: #0a0d18 !important; font-family: var(--font-sans); }
+.leaflet-control-attribution { display: none !important; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: rgba(15,17,24,0.95); color: #F1F5F9; border: 1px solid rgba(255,255,255,0.1);
+  backdrop-filter: blur(10px);
+}
+.leaflet-tile { filter: contrast(1.05) saturate(0.85); }
+

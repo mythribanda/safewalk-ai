@@ -1,11 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import {
   Shield, LayoutDashboard, MapPin, Ear, Lock, Users, History, Map as MapIcon,
   Lightbulb, Settings, Bell, ChevronRight, Phone, MessageCircle, Award,
-  PhoneCall, Mic, Flashlight, Share2, Plus, Sun, Cloud, Moon, Zap, AlertTriangle,
+  PhoneCall, Mic, MicOff, Flashlight, Share2, Plus, Sun, Cloud, Moon, Zap, AlertTriangle,
   Sparkles, Target, X, Home, Building2, UserPlus, Pin,
 } from "lucide-react";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import { useAmbientAudio } from "@/hooks/useAmbientAudio";
+import type { IncidentPin } from "@/components/map/LiveMap";
+
+const LiveMap = lazy(() => import("@/components/map/LiveMap").then(m => ({ default: m.LiveMap })));
+
+// Default to Hyderabad, Banjara Hills as fallback when geolocation denied
+const DEFAULT_CENTER = { lat: 17.4126, lng: 78.4400 };
+const INCIDENT_LABELS: Record<IncidentPin["category"], string> = {
+  harassment: "Harassment reported",
+  stalking: "Stalking incident",
+  robbery: "Robbery / theft",
+  road: "Road danger",
+  suspicious: "Suspicious person",
+};
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -23,6 +38,31 @@ function Dashboard() {
   const [mode, setMode] = useState<Mode>("night");
   const [sosOpen, setSosOpen] = useState(false);
   const [threat, setThreat] = useState(false);
+  const [incidents, setIncidents] = useState<IncidentPin[]>([]);
+  const [geofenceRadius, setGeofenceRadius] = useState(500);
+  const { pos } = useGeolocation(true);
+  const audio = useAmbientAudio();
+
+  const userPos = pos ? { lat: pos.lat, lng: pos.lng } : null;
+  const center = userPos ?? DEFAULT_CENTER;
+
+  // Real threat trigger from sustained loud audio
+  useEffect(() => {
+    if (audio.enabled && audio.threatScore >= 0.9 && !threat && !sosOpen) {
+      setThreat(true);
+    }
+  }, [audio.enabled, audio.threatScore, threat, sosOpen]);
+
+  const handleDropPin = (category: IncidentPin["category"]) => {
+    const p = userPos ?? DEFAULT_CENTER;
+    setIncidents((cur) => [...cur, {
+      id: crypto.randomUUID(),
+      lat: p.lat + (Math.random() - 0.5) * 0.001,
+      lng: p.lng + (Math.random() - 0.5) * 0.001,
+      category,
+      label: INCIDENT_LABELS[category],
+    }]);
+  };
 
   return (
     <div className="min-h-screen flex text-foreground">
@@ -34,7 +74,11 @@ function Dashboard() {
           <div className="grid grid-cols-12 gap-6">
             {/* LEFT MAIN */}
             <section className="col-span-12 xl:col-span-8 space-y-6">
-              <LiveLocationCard mode={mode} onModeChange={setMode} />
+              <LiveLocationCard
+                mode={mode} onModeChange={setMode}
+                center={center} user={userPos}
+                incidents={incidents} geofenceRadius={geofenceRadius}
+              />
               <SafeStatusBanner />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <SafeWordCard />
@@ -45,16 +89,16 @@ function Dashboard() {
             </section>
             {/* RIGHT COL */}
             <aside className="col-span-12 xl:col-span-4 space-y-6">
-              <AmbientListening onSimulate={() => setThreat(true)} />
+              <AmbientListening audio={audio} onSimulate={() => setThreat(true)} />
               <TrustedContacts />
-              <GeofenceCard />
+              <GeofenceCard radius={geofenceRadius} onRadiusChange={setGeofenceRadius} />
               <BuddyMatch />
             </aside>
           </div>
         </main>
       </div>
 
-      <IncidentFAB />
+      <IncidentFAB onDrop={handleDropPin} />
       {sosOpen && <SOSModal onClose={() => setSosOpen(false)} />}
     </div>
   );
@@ -166,14 +210,23 @@ function Header({ onSOS }: { onSOS: () => void }) {
 }
 
 /* ---------------- Live Location Map ---------------- */
-function LiveLocationCard({ mode, onModeChange }: { mode: Mode; onModeChange: (m: Mode) => void }) {
+function LiveLocationCard({
+  mode, onModeChange, center, user, incidents, geofenceRadius,
+}: {
+  mode: Mode; onModeChange: (m: Mode) => void;
+  center: { lat: number; lng: number };
+  user: { lat: number; lng: number } | null;
+  incidents: IncidentPin[];
+  geofenceRadius: number;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const modes: { key: Mode; label: string; icon: any }[] = [
     { key: "day", label: "Day", icon: Sun },
     { key: "evening", label: "Evening", icon: Cloud },
     { key: "night", label: "Night", icon: Moon },
     { key: "rush", label: "Rush", icon: Zap },
   ];
-  const overlayColor = mode === "day" ? "#2ED2A8" : mode === "evening" ? "#FFB547" : mode === "rush" ? "#FF4D9D" : "#FF3366";
 
   return (
     <div className="glass rounded-3xl p-5 relative overflow-hidden">
@@ -203,8 +256,14 @@ function LiveLocationCard({ mode, onModeChange }: { mode: Mode; onModeChange: (m
       </div>
 
       {/* Map */}
-      <div className="relative h-[380px] rounded-2xl overflow-hidden border border-white/10 bg-[#0a0d18]">
-        <MapVisual color={overlayColor} mode={mode} />
+      <div className="relative h-[420px] rounded-2xl overflow-hidden border border-white/10 bg-[#0a0d18] z-0">
+        {mounted ? (
+          <Suspense fallback={<div className="w-full h-full grid place-items-center text-muted-foreground text-sm">Loading map…</div>}>
+            <LiveMap center={center} user={user} mode={mode} incidents={incidents} geofenceRadius={geofenceRadius} />
+          </Suspense>
+        ) : (
+          <div className="w-full h-full grid place-items-center text-muted-foreground text-sm">Initializing map…</div>
+        )}
 
         {/* Mode badge */}
         <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full glass-strong text-xs font-semibold flex items-center gap-2">
@@ -353,7 +412,10 @@ function SafeStatusBanner() {
 }
 
 /* ---------------- Ambient Listening ---------------- */
-function AmbientListening({ onSimulate }: { onSimulate: () => void }) {
+type AudioState = ReturnType<typeof useAmbientAudio>;
+function AmbientListening({ audio, onSimulate }: { audio: AudioState; onSimulate: () => void }) {
+  const { enabled, setEnabled, level, threatScore, error } = audio;
+  const detected = threatScore > 0.3;
   return (
     <div className="glass rounded-3xl p-5">
       <div className="flex items-center justify-between mb-4">
@@ -361,24 +423,52 @@ function AmbientListening({ onSimulate }: { onSimulate: () => void }) {
           <Ear className="w-4 h-4 text-[#FF4D9D]" />
           <span className="text-sm font-semibold">Ambient Listening</span>
         </div>
-        <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/40 text-[9px] font-bold tracking-wider text-red-300">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse-dot" /> LIVE
-        </span>
+        <button
+          onClick={() => setEnabled(!enabled)}
+          className={[
+            "flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[10px] font-bold tracking-wider transition",
+            enabled
+              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+              : "bg-white/5 border-white/10 text-foreground/60 hover:text-white",
+          ].join(" ")}
+        >
+          {enabled ? <Mic className="w-3 h-3" /> : <MicOff className="w-3 h-3" />}
+          <span className={enabled ? "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-dot" : "hidden"} />
+          {enabled ? "LIVE" : "OFF"}
+        </button>
       </div>
 
-      <Waveform />
+      <LiveWaveform level={level} active={enabled} />
 
       <p className="text-xs text-muted-foreground mt-3 mb-3">
         Monitoring environment for: <span className="text-foreground/90">Yelling · Screams · Traffic danger</span>
       </p>
 
-      <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-3 py-2.5 flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-lg bg-emerald-500/25 grid place-items-center">
-          <Shield className="w-3.5 h-3.5 text-emerald-300" />
+      {error && (
+        <div className="rounded-xl bg-red-500/10 border border-red-500/25 px-3 py-2 text-xs text-red-200 mb-3">
+          {error}
         </div>
-        <div className="text-xs">
-          <div className="font-semibold text-emerald-200">No threats detected</div>
-          <div className="text-emerald-200/60 text-[11px]">Pattern recognition runs locally · No audio stored</div>
+      )}
+
+      <div className={[
+        "rounded-xl px-3 py-2.5 flex items-center gap-2.5 border",
+        detected
+          ? "bg-amber-500/10 border-amber-500/30"
+          : "bg-emerald-500/10 border-emerald-500/25",
+      ].join(" ")}>
+        <div className={[
+          "w-7 h-7 rounded-lg grid place-items-center",
+          detected ? "bg-amber-500/25" : "bg-emerald-500/25",
+        ].join(" ")}>
+          {detected ? <AlertTriangle className="w-3.5 h-3.5 text-amber-300" /> : <Shield className="w-3.5 h-3.5 text-emerald-300" />}
+        </div>
+        <div className="text-xs flex-1">
+          <div className={detected ? "font-semibold text-amber-200" : "font-semibold text-emerald-200"}>
+            {detected ? `Elevated sound detected — ${Math.round(threatScore * 100)}%` : enabled ? "No threats detected" : "Microphone off"}
+          </div>
+          <div className={detected ? "text-amber-200/60 text-[11px]" : "text-emerald-200/60 text-[11px]"}>
+            Pattern recognition runs locally · No audio stored
+          </div>
         </div>
       </div>
 
@@ -386,27 +476,30 @@ function AmbientListening({ onSimulate }: { onSimulate: () => void }) {
         onClick={onSimulate}
         className="mt-3 w-full text-xs font-semibold py-2.5 rounded-xl border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/20 transition flex items-center justify-center gap-2"
       >
-        <Zap className="w-3.5 h-3.5" /> Simulate Safety Threat (Yelling)
+        <Zap className="w-3.5 h-3.5" /> Simulate Safety Threat
       </button>
     </div>
   );
 }
 
-function Waveform() {
+function LiveWaveform({ level, active }: { level: number; active: boolean }) {
   const bars = Array.from({ length: 36 });
   return (
     <div className="h-20 rounded-xl bg-black/30 border border-white/5 px-3 flex items-center gap-[3px] overflow-hidden">
-      {bars.map((_, i) => (
-        <div
-          key={i}
-          className="flex-1 rounded-full bg-gradient-to-t from-[#7B61FF] to-[#FF4D9D] origin-center"
-          style={{
-            height: `${20 + Math.abs(Math.sin(i * 0.7)) * 70}%`,
-            animation: `waveform ${0.8 + (i % 5) * 0.18}s ease-in-out ${i * 0.05}s infinite`,
-            opacity: 0.75,
-          }}
-        />
-      ))}
+      {bars.map((_, i) => {
+        const base = 18 + Math.abs(Math.sin((i + Date.now() / 800) * 0.7)) * 25;
+        const reactive = active ? base + level * 70 : base * 0.4;
+        return (
+          <div
+            key={i}
+            className="flex-1 rounded-full bg-gradient-to-t from-[#7B61FF] to-[#FF4D9D] origin-center transition-[height] duration-100"
+            style={{
+              height: `${Math.min(95, reactive)}%`,
+              opacity: active ? 0.85 : 0.3,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -517,17 +610,30 @@ function TrustedContacts() {
 }
 
 /* ---------------- Geofence ---------------- */
-function GeofenceCard() {
+function GeofenceCard({ radius, onRadiusChange }: { radius: number; onRadiusChange: (v: number) => void }) {
   const zones = [
-    { icon: Home, label: "Home", radius: "200m", color: "#2ED2A8", on: true },
-    { icon: Building2, label: "Office", radius: "500m", color: "#4DA3FF", on: true },
-    { icon: UserPlus, label: "Friend's House", radius: "150m", color: "#7B61FF", on: false },
-    { icon: Pin, label: "Custom", radius: "1km", color: "#FF4D9D", on: false },
+    { icon: Home, label: "Home", color: "#2ED2A8", on: true },
+    { icon: Building2, label: "Office", color: "#4DA3FF", on: true },
+    { icon: UserPlus, label: "Friend's House", color: "#7B61FF", on: false },
+    { icon: Pin, label: "Custom", color: "#FF4D9D", on: false },
   ];
   return (
     <div className="glass rounded-3xl p-5">
       <div className="text-sm font-semibold mb-1">Geofence Safe Zones</div>
       <div className="text-[11px] text-muted-foreground mb-3">Get alerted when entering or leaving</div>
+
+      <div className="mb-4 p-3 rounded-xl border border-white/10 bg-white/[0.02]">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] text-muted-foreground">Active zone radius</span>
+          <span className="text-xs font-mono text-[#FF4D9D]">{radius < 1000 ? `${radius}m` : `${(radius / 1000).toFixed(1)}km`}</span>
+        </div>
+        <input
+          type="range" min={100} max={2000} step={50}
+          value={radius} onChange={(e) => onRadiusChange(Number(e.target.value))}
+          className="w-full accent-[#FF4D9D]"
+        />
+      </div>
+
       <ul className="space-y-2">
         {zones.map((z) => (
           <li key={z.label} className="flex items-center gap-3 p-2 rounded-xl border border-white/5 hover:border-white/15 transition">
@@ -536,7 +642,7 @@ function GeofenceCard() {
             </div>
             <div className="flex-1">
               <div className="text-xs font-medium">{z.label}</div>
-              <div className="text-[10px] text-muted-foreground">Radius {z.radius}</div>
+              <div className="text-[10px] text-muted-foreground">Live geofence: {radius}m</div>
             </div>
             <Toggle on={z.on} />
           </li>
@@ -674,9 +780,15 @@ function ThreatBanner({ onClose, onSOS }: { onClose: () => void; onSOS: () => vo
 }
 
 /* ---------------- Incident FAB ---------------- */
-function IncidentFAB() {
+function IncidentFAB({ onDrop }: { onDrop: (c: IncidentPin["category"]) => void }) {
   const [open, setOpen] = useState(false);
-  const cats = ["Harassment", "Stalking", "Robbery", "Road Danger", "Suspicious Person", "Poor Lighting"];
+  const cats: { key: IncidentPin["category"]; label: string; color: string }[] = [
+    { key: "harassment", label: "Harassment", color: "#EF4444" },
+    { key: "stalking", label: "Stalking", color: "#F59E0B" },
+    { key: "robbery", label: "Robbery", color: "#EC4899" },
+    { key: "road", label: "Road Danger", color: "#06B6D4" },
+    { key: "suspicious", label: "Suspicious Person", color: "#8B5CF6" },
+  ];
   return (
     <>
       <button
@@ -693,11 +805,16 @@ function IncidentFAB() {
               <div className="font-display text-lg font-bold">Report Incident</div>
               <button onClick={() => setOpen(false)} className="w-8 h-8 rounded-lg hover:bg-white/10 grid place-items-center"><X className="w-4 h-4" /></button>
             </div>
-            <div className="text-xs text-muted-foreground mb-4">Help your community stay safe. Anonymous by default.</div>
+            <div className="text-xs text-muted-foreground mb-4">Help your community stay safe. Pin drops on your current location.</div>
             <div className="grid grid-cols-2 gap-2">
               {cats.map(c => (
-                <button key={c} onClick={() => setOpen(false)} className="px-3 py-3 text-xs rounded-xl border border-white/10 bg-white/[0.03] hover:border-[#FF4D9D]/40 hover:bg-[#FF4D9D]/10 transition font-medium">
-                  {c}
+                <button
+                  key={c.key}
+                  onClick={() => { onDrop(c.key); setOpen(false); }}
+                  className="px-3 py-3 text-xs rounded-xl border border-white/10 bg-white/[0.03] hover:border-white/30 hover:bg-white/[0.06] transition font-medium flex items-center gap-2"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: c.color, boxShadow: `0 0 12px ${c.color}` }} />
+                  {c.label}
                 </button>
               ))}
             </div>
