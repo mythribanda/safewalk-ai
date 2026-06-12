@@ -1,11 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import {
   Shield, LayoutDashboard, MapPin, Ear, Lock, Users, History, Map as MapIcon,
   Lightbulb, Settings, Bell, ChevronRight, Phone, MessageCircle, Award,
-  PhoneCall, Mic, Flashlight, Share2, Plus, Sun, Cloud, Moon, Zap, AlertTriangle,
+  PhoneCall, Mic, MicOff, Flashlight, Share2, Plus, Sun, Cloud, Moon, Zap, AlertTriangle,
   Sparkles, Target, X, Home, Building2, UserPlus, Pin,
 } from "lucide-react";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import { useAmbientAudio } from "@/hooks/useAmbientAudio";
+import type { IncidentPin } from "@/components/map/LiveMap";
+
+const LiveMap = lazy(() => import("@/components/map/LiveMap").then(m => ({ default: m.LiveMap })));
+
+// Default to Hyderabad, Banjara Hills as fallback when geolocation denied
+const DEFAULT_CENTER = { lat: 17.4126, lng: 78.4400 };
+const INCIDENT_LABELS: Record<IncidentPin["category"], string> = {
+  harassment: "Harassment reported",
+  stalking: "Stalking incident",
+  robbery: "Robbery / theft",
+  road: "Road danger",
+  suspicious: "Suspicious person",
+};
 
 export const Route = createFileRoute("/")({
   head: () => ({
