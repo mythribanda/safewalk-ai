@@ -38,6 +38,31 @@ function Dashboard() {
   const [mode, setMode] = useState<Mode>("night");
   const [sosOpen, setSosOpen] = useState(false);
   const [threat, setThreat] = useState(false);
+  const [incidents, setIncidents] = useState<IncidentPin[]>([]);
+  const [geofenceRadius, setGeofenceRadius] = useState(500);
+  const { pos } = useGeolocation(true);
+  const audio = useAmbientAudio();
+
+  const userPos = pos ? { lat: pos.lat, lng: pos.lng } : null;
+  const center = userPos ?? DEFAULT_CENTER;
+
+  // Real threat trigger from sustained loud audio
+  useEffect(() => {
+    if (audio.enabled && audio.threatScore >= 0.9 && !threat && !sosOpen) {
+      setThreat(true);
+    }
+  }, [audio.enabled, audio.threatScore, threat, sosOpen]);
+
+  const handleDropPin = (category: IncidentPin["category"]) => {
+    const p = userPos ?? DEFAULT_CENTER;
+    setIncidents((cur) => [...cur, {
+      id: crypto.randomUUID(),
+      lat: p.lat + (Math.random() - 0.5) * 0.001,
+      lng: p.lng + (Math.random() - 0.5) * 0.001,
+      category,
+      label: INCIDENT_LABELS[category],
+    }]);
+  };
 
   return (
     <div className="min-h-screen flex text-foreground">
@@ -49,7 +74,11 @@ function Dashboard() {
           <div className="grid grid-cols-12 gap-6">
             {/* LEFT MAIN */}
             <section className="col-span-12 xl:col-span-8 space-y-6">
-              <LiveLocationCard mode={mode} onModeChange={setMode} />
+              <LiveLocationCard
+                mode={mode} onModeChange={setMode}
+                center={center} user={userPos}
+                incidents={incidents} geofenceRadius={geofenceRadius}
+              />
               <SafeStatusBanner />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <SafeWordCard />
@@ -60,16 +89,16 @@ function Dashboard() {
             </section>
             {/* RIGHT COL */}
             <aside className="col-span-12 xl:col-span-4 space-y-6">
-              <AmbientListening onSimulate={() => setThreat(true)} />
+              <AmbientListening audio={audio} onSimulate={() => setThreat(true)} />
               <TrustedContacts />
-              <GeofenceCard />
+              <GeofenceCard radius={geofenceRadius} onRadiusChange={setGeofenceRadius} />
               <BuddyMatch />
             </aside>
           </div>
         </main>
       </div>
 
-      <IncidentFAB />
+      <IncidentFAB onDrop={handleDropPin} />
       {sosOpen && <SOSModal onClose={() => setSosOpen(false)} />}
     </div>
   );
